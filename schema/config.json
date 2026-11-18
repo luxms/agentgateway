@@ -284,6 +284,13 @@
             "null"
           ]
         },
+        "documentationBundle": {
+          "description": "Path to a documentation data bundle, served at `/ui/docs/`. Relative paths use the process\nworking directory. Loaded into memory at startup; restart after replacing the bundle.\nIf unset or the file is missing, the UI hides the Docs navigation item.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "standardAttributes": {
           "description": "Standard request log attributes populated for database-backed local runtime features.",
           "anyOf": [

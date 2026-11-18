@@ -481,6 +481,7 @@ pub fn parse_config(
 		network: network.clone().into(),
 		self_identity,
 		admin_addr,
+		documentation_bundle: raw.documentation_bundle,
 		stats_addr,
 		readiness_addr,
 		self_addr,
