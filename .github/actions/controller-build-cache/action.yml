@@ -42,7 +42,7 @@ runs:
     uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
     with:
       go-version-file: ${{ inputs.go-version-file }}
-      cache: false
+      cache: ${{ github.repository != 'agentgateway/agentgateway' }}
 
   - name: Locate Go module cache
     id: go-env
@@ -50,6 +50,7 @@ runs:
     run: echo "modcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
 
   - name: Mount Go module cache
+    if: ${{ github.repository == 'agentgateway/agentgateway' }}
     uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
     with:
       # Each snapshot replaces the whole disk, so jobs that download different modules need their own key.
