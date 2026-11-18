@@ -56,7 +56,7 @@ impl Bundle {
 		let data = match fs_err::tokio::read(path).await {
 			Ok(data) => data,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-				tracing::warn!(path = %path.display(), "documentation bundle not found; Docs navigation is disabled");
+				tracing::warn!(path = %path.display(), "documentation bundle not found; local documentation is disabled");
 				return Ok(None);
 			},
 			Err(error) => return Err(error.into()),
