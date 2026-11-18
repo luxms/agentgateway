@@ -34,7 +34,7 @@ jobs:
     strategy:
       matrix:
         include:
-        - os: blacksmith-4vcpu-ubuntu-2404
+        - os: ${{ github.repository == 'agentgateway/agentgateway' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
           name: "Proxy Test"
         - os: windows-2025
           name: "Proxy Test (Windows)"
@@ -48,6 +48,9 @@ jobs:
         persist-credentials: false
         # The Rust build cache restores source mtimes from each path's history.
         fetch-depth: 0
+    - name: Test documentation bundle builder
+      if: ${{ runner.os == 'Linux' }}
+      run: python3 -B -m unittest discover -s tools/tests -p test_docs_bundle.py
     - name: Set up Rust build cache
       uses: ./.github/actions/rust-build-cache
       with:
@@ -55,20 +58,20 @@ jobs:
         # PRs restore the default branch cache; only postsubmit rolls it forward.
         save: ${{ github.ref == 'refs/heads/main' }}
     - name: Start validation dependencies
-      if: ${{ startsWith(matrix.os, 'blacksmith-') }}
+      if: ${{ runner.os == 'Linux' }}
       run: tools/manage-validation-deps.sh start
     - name: Start Postgres
-      if: ${{ startsWith(matrix.os, 'blacksmith-') }}
+      if: ${{ runner.os == 'Linux' }}
       run: |
         docker run -d --name agw-test-postgres -e POSTGRES_PASSWORD=test -p 127.0.0.1:55432:5432 postgres:17-alpine
         timeout 60 bash -c 'until docker exec agw-test-postgres pg_isready -U postgres -h 127.0.0.1; do sleep 1; done'
     - name: Test
       run: make test
       env:
-        KEYCLOAK_AVAILABLE: ${{ startsWith(matrix.os, 'blacksmith-') && '1' || '' }}
+        KEYCLOAK_AVAILABLE: ${{ runner.os == 'Linux' && '1' || '' }}
         # Postgres integration tests run only where the step above starts the database.
-        AGW_TEST_POSTGRES_URL: ${{ startsWith(matrix.os, 'blacksmith-') && 'postgres://postgres:test@127.0.0.1:55432/postgres' || '' }}
-        AGW_TEST_REQUIRE_POSTGRES: ${{ startsWith(matrix.os, 'blacksmith-') && '1' || '' }}
+        AGW_TEST_POSTGRES_URL: ${{ runner.os == 'Linux' && 'postgres://postgres:test@127.0.0.1:55432/postgres' || '' }}
+        AGW_TEST_REQUIRE_POSTGRES: ${{ runner.os == 'Linux' && '1' || '' }}
         # Generate Cargo's per-crate build report for the artifact below.
         TIMINGS: true
     - name: Upload cargo timings
@@ -78,14 +81,14 @@ jobs:
         path: target/cargo-timings/cargo-timing*.html
         retention-days: 2
     - name: Stop Postgres
-      if: ${{ always() && startsWith(matrix.os, 'blacksmith-') }}
+      if: ${{ always() && runner.os == 'Linux' }}
       run: docker rm -f agw-test-postgres
     - name: Stop validation dependencies
-      if: ${{ always() && startsWith(matrix.os, 'blacksmith-') }}
+      if: ${{ always() && runner.os == 'Linux' }}
       run: tools/manage-validation-deps.sh stop
 
   proxy-lint:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'agentgateway/agentgateway' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
@@ -135,7 +138,7 @@ jobs:
 
   #### Controller jobs ####
   controller-test:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'agentgateway/agentgateway' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
@@ -151,7 +154,7 @@ jobs:
       run: go test -race ./...
 
   controller-lint:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'agentgateway/agentgateway' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
@@ -170,7 +173,7 @@ jobs:
         make -C controller verify
 
   controller-e2e:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'agentgateway/agentgateway' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
@@ -209,7 +212,7 @@ jobs:
         cat controller/_test/ci-step-timings.log >> $GITHUB_STEP_SUMMARY
 
   controller-conformance:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'agentgateway/agentgateway' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
@@ -262,7 +265,7 @@ jobs:
         cat controller/_test/ci-step-timings.log >> $GITHUB_STEP_SUMMARY
 
   controller-gie-conformance:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'agentgateway/agentgateway' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:

@@ -7,6 +7,8 @@ controller/pkg/client/** linguist-generated=true
 controller/pkg/generated/** linguist-generated=true
 crates/agentgateway/src/llm/tests/** text eol=lf
 crates/agentgateway/src/llm/tests/**/*.bin -text
+crates/agentgateway/src/ui/testdata/site/** text eol=lf
+crates/agentgateway/src/ui/testdata/*.pack -text
 schema/*.json linguist-generated=true
 schema/cel.md linguist-generated=true
 schema/config.md linguist-generated=true

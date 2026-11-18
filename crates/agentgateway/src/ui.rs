@@ -27,6 +27,8 @@ use crate::config_store::{
 use crate::llm::catalog::ModelCatalog;
 use crate::{Config, ConfigSource, ConfigStoreMode, yaml};
 
+pub(crate) mod documentation;
+
 const BASE_COSTS_FILE: &str = "base-costs.json";
 const CONFIG_SCHEMA_HEADER: &str =
 	"# yaml-language-server: $schema=https://agentgateway.dev/schema/config\n";
@@ -37,6 +39,7 @@ struct App {
 	config_resource_store: Option<ConfigResourceStore>,
 	resource_manager: crate::resource_manager::ResourceManager,
 	model_catalog: Arc<ModelCatalog>,
+	documentation: Option<Arc<documentation::Bundle>>,
 }
 
 impl App {
@@ -75,18 +78,20 @@ impl App {
 
 pub(crate) static EMPTY_ASSETS_DIR: Dir<'static> = Dir::new("", &[]);
 
-pub fn router(
+pub(crate) fn router(
 	cfg: Arc<Config>,
 	model_catalog: Arc<ModelCatalog>,
 	config_resource_store: Option<ConfigResourceStore>,
 	resource_manager: crate::resource_manager::ResourceManager,
 	assets_dir: &'static Dir<'static>,
+	documentation: Option<Arc<documentation::Bundle>>,
 ) -> Router {
 	let app = App {
 		state: cfg.clone(),
 		config_resource_store,
 		resource_manager,
 		model_catalog,
+		documentation: documentation.clone(),
 	};
 	let router = Router::new()
 		// OIDC intercepts this path to start login; without OIDC, return to the UI.
@@ -122,7 +127,7 @@ pub fn router(
 		.route("/api/costs/models", get(cost_models))
 		.route("/api/costs/refresh-base", post(refresh_base_costs))
 		.route("/api/budgets/status", get(budget_status));
-	let router = if assets_dir.entries().is_empty() {
+	let router = if assets_dir.entries().is_empty() && documentation.is_none() {
 		router.route("/", get(crate::management::admin::handle_dashboard))
 	} else {
 		// Split once so each index request only inserts its <base>.
@@ -133,13 +138,20 @@ pub fn router(
 				.expect("UI index.html must contain <head>");
 			Arc::new((format!("{head}<head>"), rest.to_string()))
 		});
-		let ui_service = tower::service_fn(move |req| serve_ui_asset(req, assets_dir, index.clone()));
-		router.nest_service("/ui", ui_service).route(
-			"/",
-			get(|base_path: Option<Extension<UiBasePath>>| async move {
-				Redirect::permanent(&format!("{}/ui/", ui_base_path(base_path.as_deref())))
-			}),
-		)
+		let ui_service = tower::service_fn(move |req| {
+			serve_ui_asset(req, assets_dir, index.clone(), documentation.clone())
+		});
+		let router = router.nest_service("/ui", ui_service);
+		if assets_dir.entries().is_empty() {
+			router.route("/", get(crate::management::admin::handle_dashboard))
+		} else {
+			router.route(
+				"/",
+				get(|base_path: Option<Extension<UiBasePath>>| async move {
+					Redirect::permanent(&format!("{}/ui/", ui_base_path(base_path.as_deref())))
+				}),
+			)
+		}
 	};
 	router
 		.layer(axum::middleware::from_fn_with_state(
@@ -254,6 +266,8 @@ struct RuntimeBuildInfo {
 struct RuntimeUiInfo {
 	gateway_mode: GatewayRuntimeMode,
 	config_store_mode: ConfigStoreMode,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	documentation_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -406,6 +420,7 @@ async fn get_runtime(State(app): State<App>, req: axum::extract::Request) -> imp
 					GatewayRuntimeMode::Standalone
 				},
 				config_store_mode: app.state.storage.mode,
+				documentation_path: app.documentation.as_ref().map(|bundle| bundle.entrypoint()),
 			},
 			config_reload: {
 				let last_error = app.state.config_reload_status.last_error();
@@ -422,7 +437,14 @@ async fn serve_ui_asset(
 	req: http::Request<axum::body::Body>,
 	assets: &'static Dir<'static>,
 	index: Option<Arc<(String, String)>>,
+	documentation: Option<Arc<documentation::Bundle>>,
 ) -> Result<Response, std::convert::Infallible> {
+	if req.uri().path() == "/docs" || req.uri().path().starts_with("/docs/") {
+		return Ok(match documentation {
+			Some(bundle) => bundle.serve(req),
+			None => StatusCode::NOT_FOUND.into_response(),
+		});
+	}
 	if should_serve_ui_index(req.uri().path()) {
 		let Some(index) = index else {
 			return Ok(StatusCode::NOT_FOUND.into_response());
@@ -1416,6 +1438,7 @@ mod tests {
 			resource_manager: crate::resource_manager::ResourceManager::new(client)
 				.expect("resource manager"),
 			model_catalog: Arc::new(crate::llm::catalog::ModelCatalog::default()),
+			documentation: None,
 		}
 	}
 
@@ -1442,6 +1465,7 @@ mod tests {
 			app.config_resource_store.clone(),
 			app.resource_manager.clone(),
 			&EMPTY_ASSETS_DIR,
+			None,
 		);
 		for (method, uri, body) in [
 			("GET", "/api/config/resources", ""),
@@ -1521,6 +1545,7 @@ mod tests {
 			app.config_resource_store.clone(),
 			app.resource_manager.clone(),
 			&EMPTY_ASSETS_DIR,
+			None,
 		);
 		for (method, uri, body, want) in [
 			("GET", "/api/config/resources", "", StatusCode::OK),
@@ -1694,6 +1719,7 @@ mod tests {
 			app.config_resource_store.clone(),
 			app.resource_manager.clone(),
 			&EMPTY_ASSETS_DIR,
+			None,
 		);
 		let post = |content_type: Option<&str>, body: &str| {
 			let mut request = axum::extract::Request::builder()
@@ -1862,6 +1888,7 @@ mod tests {
 				None,
 				app.resource_manager.clone(),
 				&TEST_UI_ASSETS,
+				None,
 			);
 			let get = |uri: &'static str| {
 				let router = router.clone();
@@ -1907,6 +1934,80 @@ mod tests {
 			let (status, _, body) = get("/ui/assets/index.js").await;
 			assert_eq!(status, StatusCode::OK);
 			assert_eq!(body, "console.log(1)");
+		}
+	}
+
+	#[tokio::test]
+	async fn documentation_routes_and_runtime_link_are_optional() {
+		for enabled in [false, true] {
+			let app = test_app(true);
+			let documentation = if enabled {
+				Some(Arc::new(
+					documentation::Bundle::load_if_present(
+						&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/ui/testdata/docs.pack"),
+					)
+					.await
+					.unwrap()
+					.unwrap(),
+				))
+			} else {
+				None
+			};
+			let router = router(
+				app.state.clone(),
+				app.model_catalog.clone(),
+				None,
+				app.resource_manager.clone(),
+				&TEST_UI_ASSETS,
+				documentation,
+			);
+			for (path, expected) in [
+				(
+					"/ui/docs/",
+					if enabled {
+						StatusCode::OK
+					} else {
+						StatusCode::NOT_FOUND
+					},
+				),
+				(
+					"/ui/docs/guide/",
+					if enabled {
+						StatusCode::OK
+					} else {
+						StatusCode::NOT_FOUND
+					},
+				),
+				("/ui/docs/missing", StatusCode::NOT_FOUND),
+				("/ui/llm/models", StatusCode::OK),
+				("/api/runtime", StatusCode::OK),
+			] {
+				let response = router
+					.clone()
+					.oneshot(
+						axum::extract::Request::builder()
+							.uri(path)
+							.body(axum::body::Body::empty())
+							.unwrap(),
+					)
+					.await
+					.unwrap();
+				assert_eq!(response.status(), expected, "{enabled}: {path}");
+				if path == "/api/runtime" {
+					let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+						.await
+						.unwrap();
+					let value: Value = serde_json::from_slice(&body).unwrap();
+					assert_eq!(
+						value["ui"]["documentationPath"],
+						if enabled {
+							Value::from("/ui/docs/")
+						} else {
+							Value::Null
+						}
+					);
+				}
+			}
 		}
 	}
 

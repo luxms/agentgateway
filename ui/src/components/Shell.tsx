@@ -121,8 +121,11 @@ export function Shell() {
 	const matchedNav = nav
 		.filter(item => navItemActive(item, router.location.pathname))
 		.sort((left, right) => right.to.length - left.to.length)[0];
-	const currentNav = matchedNav ?? nav[0];
-	const currentGroup = navGroups.find(group => group.items.includes(currentNav));
+	const documentationActive = navItemActive({ to: '/documentation' }, router.location.pathname);
+	const currentNav = documentationActive
+		? { label: 'Documentation', icon: Globe }
+		: (matchedNav ?? nav[0]);
+	const currentGroup = navGroups.find(group => group.items.includes(matchedNav ?? nav[0]));
 	const CurrentIcon = currentNav.icon;
 
 	useEffect(() => {
@@ -154,21 +157,32 @@ export function Shell() {
 						const Icon = link.icon;
 						return (
 							<Tooltip content={link.label} key={link.href} side="top">
-								<a
-									className="sidebar-link"
-									href={link.href}
-									target="_blank"
-									rel="noreferrer"
-									aria-label={link.label}
-								>
-									<Icon size={17} />
-								</a>
+								{link.label === 'Documentation' && runtime.data?.ui.documentationPath ? (
+									<Link
+										className="sidebar-link"
+										to="/documentation"
+										aria-label={link.label}
+										aria-current={documentationActive ? 'page' : undefined}
+									>
+										<Icon size={17} />
+									</Link>
+								) : (
+									<a
+										className="sidebar-link"
+										href={link.href}
+										target="_blank"
+										rel="noreferrer"
+										aria-label={link.label}
+									>
+										<Icon size={17} />
+									</a>
+								)}
 							</Tooltip>
 						);
 					})}
 				</div>
 			</aside>
-			<div className="main-area">
+			<div className={documentationActive ? 'main-area documentation-area' : 'main-area'}>
 				<header className="topbar">
 					<div className="topbar-left">
 						<div className="mobile-nav" ref={mobileNavRef}>
@@ -195,11 +209,11 @@ export function Shell() {
 								</nav>
 							) : null}
 						</div>
-						{matchedNav && currentGroup && (
+						{(matchedNav || documentationActive) && currentGroup && (
 							<nav className="breadcrumb" aria-label="Breadcrumb">
 								<span>{currentGroup.title}</span>
 								<ChevronRight size={14} />
-								<span aria-current="page">{matchedNav.label}</span>
+								<span aria-current="page">{currentNav.label}</span>
 							</nav>
 						)}
 					</div>
@@ -221,7 +235,7 @@ export function Shell() {
 						</Tooltip>
 					</div>
 				</header>
-				<main className="content">
+				<main className={documentationActive ? 'content documentation-content' : 'content'}>
 					{runtime.data?.configReload && !runtime.data.configReload.synchronized && (
 						<StatusBanner state="warn" title="Configuration reload failed">
 							The last configuration reload was rejected, so the gateway is still running the

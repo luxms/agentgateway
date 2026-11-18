@@ -22,6 +22,8 @@ export interface RuntimeInfo {
 	ui: {
 		gatewayMode: 'standalone' | 'xds';
 		configStoreMode: 'file' | 'hybrid' | 'readOnly';
+		/** Local documentation path relative to the API base, when a bundle is loaded. */
+		documentationPath?: string;
 	};
 	/** Standalone config reload state; mirrors the config_synchronized metric. */
 	configReload: {

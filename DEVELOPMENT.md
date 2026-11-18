@@ -160,3 +160,8 @@ Run:
 ```bash
 tilt up
 ```
+
+## Local documentation
+
+To serve a separately updatable static documentation site from the UI, see
+[Local documentation bundles](architecture/documentation-bundles.md).
