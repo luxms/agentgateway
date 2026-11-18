@@ -212,7 +212,7 @@ pub struct RawConfig {
 	admin_addr: Option<String>,
 	/// Path to a documentation data bundle, served at `/ui/docs/`. Relative paths use the process
 	/// working directory. Loaded into memory at startup; restart after replacing the bundle.
-	/// If unset or the file is missing, the UI hides the Docs navigation item.
+	/// If unset or the file is missing, the Documentation link uses the public website.
 	documentation_bundle: Option<PathBuf>,
 	/// Standard request log attributes populated for database-backed local runtime features.
 	standard_attributes: Option<RawStandardAttributes>,

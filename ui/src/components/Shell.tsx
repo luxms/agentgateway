@@ -2,7 +2,6 @@ import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-route
 import {
 	BarChart3,
 	Bolt,
-	BookOpen,
 	Bot,
 	Boxes,
 	Braces,
@@ -12,6 +11,7 @@ import {
 	Coins,
 	FileCode2,
 	GitFork,
+	Globe,
 	Home,
 	KeyRound,
 	LogOut,
@@ -51,7 +51,6 @@ type NavItemConfig = {
 	placeholder?: boolean;
 	groupStart?: boolean;
 	exact?: boolean;
-	href?: string;
 };
 
 const projectLinks = [
@@ -59,6 +58,11 @@ const projectLinks = [
 		label: 'GitHub',
 		href: 'https://github.com/agentgateway/agentgateway',
 		icon: GitFork
+	},
+	{
+		label: 'Documentation',
+		href: 'https://agentgateway.dev/docs/standalone/latest/',
+		icon: Globe
 	},
 	{
 		label: 'Feedback',
@@ -111,15 +115,17 @@ export function Shell() {
 		hasMcp,
 		hasTraffic,
 		hasBinds,
-		dumpMode,
-		documentationPath: runtime.data?.ui.documentationPath
+		dumpMode
 	});
 	const nav = navGroups.flatMap(group => group.items);
 	const matchedNav = nav
 		.filter(item => navItemActive(item, router.location.pathname))
 		.sort((left, right) => right.to.length - left.to.length)[0];
-	const currentNav = matchedNav ?? nav[0];
-	const currentGroup = navGroups.find(group => group.items.includes(currentNav));
+	const documentationActive = navItemActive({ to: '/documentation' }, router.location.pathname);
+	const currentNav = documentationActive
+		? { label: 'Documentation', icon: Globe }
+		: (matchedNav ?? nav[0]);
+	const currentGroup = navGroups.find(group => group.items.includes(matchedNav ?? nav[0]));
 	const CurrentIcon = currentNav.icon;
 
 	useEffect(() => {
@@ -151,21 +157,32 @@ export function Shell() {
 						const Icon = link.icon;
 						return (
 							<Tooltip content={link.label} key={link.href} side="top">
-								<a
-									className="sidebar-link"
-									href={link.href}
-									target="_blank"
-									rel="noreferrer"
-									aria-label={link.label}
-								>
-									<Icon size={17} />
-								</a>
+								{link.label === 'Documentation' && runtime.data?.ui.documentationPath ? (
+									<Link
+										className="sidebar-link"
+										to="/documentation"
+										aria-label={link.label}
+										aria-current={documentationActive ? 'page' : undefined}
+									>
+										<Icon size={17} />
+									</Link>
+								) : (
+									<a
+										className="sidebar-link"
+										href={link.href}
+										target="_blank"
+										rel="noreferrer"
+										aria-label={link.label}
+									>
+										<Icon size={17} />
+									</a>
+								)}
 							</Tooltip>
 						);
 					})}
 				</div>
 			</aside>
-			<div className="main-area">
+			<div className={documentationActive ? 'main-area documentation-area' : 'main-area'}>
 				<header className="topbar">
 					<div className="topbar-left">
 						<div className="mobile-nav" ref={mobileNavRef}>
@@ -192,11 +209,11 @@ export function Shell() {
 								</nav>
 							) : null}
 						</div>
-						{matchedNav && currentGroup && (
+						{(matchedNav || documentationActive) && currentGroup && (
 							<nav className="breadcrumb" aria-label="Breadcrumb">
 								<span>{currentGroup.title}</span>
 								<ChevronRight size={14} />
-								<span aria-current="page">{matchedNav.label}</span>
+								<span aria-current="page">{currentNav.label}</span>
 							</nav>
 						)}
 					</div>
@@ -218,7 +235,7 @@ export function Shell() {
 						</Tooltip>
 					</div>
 				</header>
-				<main className="content">
+				<main className={documentationActive ? 'content documentation-content' : 'content'}>
 					{runtime.data?.configReload && !runtime.data.configReload.synchronized && (
 						<StatusBanner state="warn" title="Configuration reload failed">
 							The last configuration reload was rejected, so the gateway is still running the
@@ -301,24 +318,11 @@ function navigationGroups(options: {
 	hasMcp: boolean;
 	hasTraffic: boolean;
 	dumpMode: boolean;
-	documentationPath?: string;
 }): ReadonlyArray<{ title: string; items: readonly NavItemConfig[] }> {
 	const groups: Array<{ title: string; items: readonly NavItemConfig[] }> = [
 		{
 			title: 'Gateway',
-			items: [
-				{ to: '/', label: 'Home', icon: Home },
-				...(options.documentationPath
-					? [
-							{
-								to: '/docs',
-								label: 'Docs',
-								icon: BookOpen,
-								href: `${apiBase}${options.documentationPath}`
-							}
-						]
-					: [])
-			]
+			items: [{ to: '/', label: 'Home', icon: Home }]
 		}
 	];
 	if (!options.dumpMode) {
@@ -481,7 +485,6 @@ function MobileNavItem(props: {
 	placeholder?: boolean;
 	groupStart?: boolean;
 	exact?: boolean;
-	href?: string;
 }) {
 	const Icon = props.icon;
 	const navigate = useNavigate();
@@ -498,15 +501,6 @@ function MobileNavItem(props: {
 			</button>
 		);
 	}
-	if (props.href) {
-		return (
-			<a href={props.href} className="mobile-nav-item" target="_blank" rel="noreferrer">
-				<Icon size={16} />
-				<span>{props.label}</span>
-			</a>
-		);
-	}
-
 	return (
 		<Link
 			to={props.to}
@@ -526,7 +520,6 @@ function NavItem(props: {
 	placeholder?: boolean;
 	groupStart?: boolean;
 	exact?: boolean;
-	href?: string;
 }) {
 	const Icon = props.icon;
 	const navigate = useNavigate();
@@ -543,15 +536,6 @@ function NavItem(props: {
 			</button>
 		);
 	}
-	if (props.href) {
-		return (
-			<a href={props.href} className="nav-item" target="_blank" rel="noreferrer">
-				<Icon size={17} />
-				<span>{props.label}</span>
-			</a>
-		);
-	}
-
 	return (
 		<Link
 			to={props.to}
@@ -563,8 +547,7 @@ function NavItem(props: {
 	);
 }
 
-function navItemActive(item: { to: string; exact?: boolean; href?: string }, path: string) {
-	if (item.href) return false;
+function navItemActive(item: { to: string; exact?: boolean }, path: string) {
 	if (item.to === '/') return path === '/';
 	if (item.exact) return path === item.to;
 	return path === item.to || path.startsWith(`${item.to}/`);

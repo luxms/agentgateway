@@ -14,6 +14,7 @@ import { Shell } from '@/components/Shell';
 import { CelPage } from '@/pages/Cel';
 import { ClientSetupPage } from '@/pages/ClientSetup';
 import { CostsPage } from '@/pages/Costs';
+import { DocumentationPage } from '@/pages/Documentation';
 import { DumpPoliciesPage } from '@/pages/DumpPolicies';
 import { LlmGetStartedPage, McpGetStartedPage, TrafficGetStartedPage } from '@/pages/GetStarted';
 import { GuardrailsPage } from '@/pages/Guardrails';
@@ -65,6 +66,12 @@ const indexRoute = createRoute({
 	getParentRoute: () => appRoute,
 	path: '/',
 	component: HomePage
+});
+
+const documentationRoute = createRoute({
+	getParentRoute: () => appRoute,
+	path: '/documentation',
+	component: DocumentationPage
 });
 
 const dumpPoliciesRoute = createRoute({
@@ -245,6 +252,7 @@ const router = createRouter({
 		loginRoute,
 		appRoute.addChildren([
 			indexRoute,
+			documentationRoute,
 			dumpPoliciesRoute,
 			llmGetStartedRoute,
 			modelsRoute,

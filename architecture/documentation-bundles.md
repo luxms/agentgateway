@@ -45,11 +45,14 @@ of the site's language, branding, and generator.
    bundle logs a warning and disables local documentation. An invalid or unreadable
    existing bundle prevents startup. Configuration reload does not reload this static setting or its file.
 
-The top-level **Docs** navigation item opens the local landing page in a new tab.
-It appears in desktop and mobile navigation only when a bundle loaded successfully
-at startup. If the YAML setting `config.documentationBundle` is unset or the file
-is missing, the UI shows no documentation link. It stays hidden while the UI waits
-for runtime information; there is no external website fallback.
+The existing **Documentation** globe icon remains in the sidebar footer, between
+GitHub and Feedback. When a bundle loaded successfully at startup, it opens
+`/ui/documentation` inside the UI. The documentation site is displayed in a frame
+within the main content area, keeping the gateway navigation visible. Links and
+search within the documentation continue inside that frame.
+If the YAML setting `config.documentationBundle` is unset or the file is missing,
+the icon opens the public documentation website in a new tab, as upstream does.
+The public link is also used while runtime information is pending or unavailable.
 Local documentation is served under `/ui/docs/` through the existing management
 service, with the same configured UI gateway authentication and base path. The
 admin listener retains its existing access rules; configure its bind address and

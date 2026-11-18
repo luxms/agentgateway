@@ -588,6 +588,36 @@ a {
 	margin-bottom: 18px;
 }
 
+.documentation-area {
+	display: flex;
+	flex-direction: column;
+	height: 100dvh;
+}
+
+.documentation-area .topbar {
+	flex-shrink: 0;
+}
+
+.content.documentation-content {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-height: 0;
+	padding: 0;
+}
+
+.documentation-frame {
+	display: block;
+	flex: 1;
+	width: 100%;
+	min-height: 0;
+	border: 0;
+}
+
+.documentation-unavailable {
+	padding: 28px;
+}
+
 .page-stack {
 	display: flex;
 	flex-direction: column;
