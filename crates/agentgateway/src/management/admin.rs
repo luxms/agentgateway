@@ -140,8 +140,14 @@ impl Service {
 			shutdown_trigger,
 			dataplane_handle,
 		});
+		let documentation = match &state.config.documentation_bundle {
+			Some(path) => crate::ui::documentation::Bundle::load_if_present(path)
+				.await?
+				.map(Arc::new),
+			None => None,
+		};
 		let service = AdminService {
-			router: admin_router(state.clone(), ui_assets),
+			router: admin_router(state.clone(), ui_assets, documentation),
 		};
 		Server::<AdminService>::bind(
 			"admin",
@@ -186,7 +192,11 @@ impl AdminService {
 	}
 }
 
-fn admin_router(state: Arc<AdminState>, ui_assets: &'static include_dir::Dir<'static>) -> Router {
+fn admin_router(
+	state: Arc<AdminState>,
+	ui_assets: &'static include_dir::Dir<'static>,
+	documentation: Option<Arc<crate::ui::documentation::Bundle>>,
+) -> Router {
 	let router = Router::new();
 	#[cfg(target_os = "linux")]
 	let router = router.route("/debug/pprof/profile", get(handle_pprof));
@@ -206,6 +216,7 @@ fn admin_router(state: Arc<AdminState>, ui_assets: &'static include_dir::Dir<'st
 		state.config_resource_store.clone(),
 		state.resource_manager.clone(),
 		ui_assets,
+		documentation,
 	));
 
 	router.layer(add_cors_layer())

@@ -210,6 +210,10 @@ pub struct RawConfig {
 
 	/// Admin UI address in the format "ip:port", "localhost:port", "unix:/path/to/socket", or "off"
 	admin_addr: Option<String>,
+	/// Path to a documentation data bundle, served at `/ui/docs/`. Relative paths use the process
+	/// working directory. Loaded into memory at startup; restart after replacing the bundle.
+	/// If unset or the file is missing, the UI hides the Docs navigation item.
+	documentation_bundle: Option<PathBuf>,
 	/// Standard request log attributes populated for database-backed local runtime features.
 	standard_attributes: Option<RawStandardAttributes>,
 	/// Stats/metrics server address in the format "ip:port", "localhost:port", "unix:/path/to/socket", or "off"
@@ -753,6 +757,8 @@ pub struct Config {
 	/// Specify the number of worker threads the Tokio Runtime will use.
 	pub num_worker_threads: usize,
 	pub admin_addr: Address,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub documentation_bundle: Option<PathBuf>,
 	pub stats_addr: Address,
 	pub histograms: HistogramMode,
 	pub readiness_addr: Address,

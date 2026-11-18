@@ -2,6 +2,7 @@ import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-route
 import {
 	BarChart3,
 	Bolt,
+	BookOpen,
 	Bot,
 	Boxes,
 	Braces,
@@ -11,7 +12,6 @@ import {
 	Coins,
 	FileCode2,
 	GitFork,
-	Globe,
 	Home,
 	KeyRound,
 	LogOut,
@@ -51,6 +51,7 @@ type NavItemConfig = {
 	placeholder?: boolean;
 	groupStart?: boolean;
 	exact?: boolean;
+	href?: string;
 };
 
 const projectLinks = [
@@ -58,11 +59,6 @@ const projectLinks = [
 		label: 'GitHub',
 		href: 'https://github.com/agentgateway/agentgateway',
 		icon: GitFork
-	},
-	{
-		label: 'Documentation',
-		href: 'https://agentgateway.dev/docs/standalone/latest/',
-		icon: Globe
 	},
 	{
 		label: 'Feedback',
@@ -115,7 +111,8 @@ export function Shell() {
 		hasMcp,
 		hasTraffic,
 		hasBinds,
-		dumpMode
+		dumpMode,
+		documentationPath: runtime.data?.ui.documentationPath
 	});
 	const nav = navGroups.flatMap(group => group.items);
 	const matchedNav = nav
@@ -304,11 +301,24 @@ function navigationGroups(options: {
 	hasMcp: boolean;
 	hasTraffic: boolean;
 	dumpMode: boolean;
+	documentationPath?: string;
 }): ReadonlyArray<{ title: string; items: readonly NavItemConfig[] }> {
 	const groups: Array<{ title: string; items: readonly NavItemConfig[] }> = [
 		{
 			title: 'Gateway',
-			items: [{ to: '/', label: 'Home', icon: Home }]
+			items: [
+				{ to: '/', label: 'Home', icon: Home },
+				...(options.documentationPath
+					? [
+							{
+								to: '/docs',
+								label: 'Docs',
+								icon: BookOpen,
+								href: `${apiBase}${options.documentationPath}`
+							}
+						]
+					: [])
+			]
 		}
 	];
 	if (!options.dumpMode) {
@@ -471,6 +481,7 @@ function MobileNavItem(props: {
 	placeholder?: boolean;
 	groupStart?: boolean;
 	exact?: boolean;
+	href?: string;
 }) {
 	const Icon = props.icon;
 	const navigate = useNavigate();
@@ -487,6 +498,15 @@ function MobileNavItem(props: {
 			</button>
 		);
 	}
+	if (props.href) {
+		return (
+			<a href={props.href} className="mobile-nav-item" target="_blank" rel="noreferrer">
+				<Icon size={16} />
+				<span>{props.label}</span>
+			</a>
+		);
+	}
+
 	return (
 		<Link
 			to={props.to}
@@ -506,6 +526,7 @@ function NavItem(props: {
 	placeholder?: boolean;
 	groupStart?: boolean;
 	exact?: boolean;
+	href?: string;
 }) {
 	const Icon = props.icon;
 	const navigate = useNavigate();
@@ -522,6 +543,15 @@ function NavItem(props: {
 			</button>
 		);
 	}
+	if (props.href) {
+		return (
+			<a href={props.href} className="nav-item" target="_blank" rel="noreferrer">
+				<Icon size={17} />
+				<span>{props.label}</span>
+			</a>
+		);
+	}
+
 	return (
 		<Link
 			to={props.to}
@@ -533,7 +563,8 @@ function NavItem(props: {
 	);
 }
 
-function navItemActive(item: { to: string; exact?: boolean }, path: string) {
+function navItemActive(item: { to: string; exact?: boolean; href?: string }, path: string) {
+	if (item.href) return false;
 	if (item.to === '/') return path === '/';
 	if (item.exact) return path === item.to;
 	return path === item.to || path.startsWith(`${item.to}/`);
