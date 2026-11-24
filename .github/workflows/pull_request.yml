@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - "main"
+      - "dranik"
   pull_request:
     branches:
       - "main"
+      - "dranik"
 
 concurrency:
   # GitHub concurrency keeps at most one running and one pending run per group.

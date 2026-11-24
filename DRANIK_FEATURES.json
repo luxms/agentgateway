@@ -1,0 +1,34 @@
+{
+  "upstream_repository": "agentgateway/agentgateway",
+  "fork_repository": "luxms/agentgateway",
+  "default_branch": "dranik",
+  "upstream_mirror_branch": "main",
+  "synchronization": "manual_on_request",
+  "upstream_main_commit": "27cfef54e50dacfba2ce49d7e2e5095ed936fe33",
+  "updated_on": "2026-11-24",
+  "feature_branch_policy": {
+    "base": "upstream/main",
+    "integration_branch": "dranik",
+    "upstream_pull_request_required": true,
+    "delete_after": "upstream_pr_merged_and_integrated_into_dranik",
+    "delete_on_fork_pr_merge": false,
+    "preserve_dranik_only_changes": true
+  },
+  "features": [
+    {
+      "branch": "streaming_token_reassembly",
+      "upstream_pr": "https://github.com/agentgateway/agentgateway/pull/4349",
+      "upstream_status": "open",
+      "integrated_into_dranik": true,
+      "integrated_commit": "3dc2da5919ddcdf43af3904afb973fee8d5671e8"
+    },
+    {
+      "branch": "feat/docs-data-bundle",
+      "fork_pr": "https://github.com/luxms/agentgateway/pull/1",
+      "upstream_pr": null,
+      "upstream_status": "needs_upstream_pr",
+      "integrated_into_dranik": true,
+      "integrated_commit": "01748939bcc7a25d956b961d54162601f043ef2d"
+    }
+  ]
+}
