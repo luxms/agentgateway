@@ -25,6 +25,13 @@ export interface RuntimeInfo {
 		/** Local documentation path relative to the API base, when a bundle is loaded. */
 		documentationPath?: string;
 	};
+	/** Which sections the effective config sets. Absent when the config cannot be read. */
+	config?: {
+		llm: boolean;
+		mcp: boolean;
+		traffic: boolean;
+		binds: boolean;
+	};
 	/** Standalone config reload state; mirrors the config_synchronized metric. */
 	configReload: {
 		/** False when the most recent reload failed and the runtime kept the previous config. */

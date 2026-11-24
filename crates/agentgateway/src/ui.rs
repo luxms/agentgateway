@@ -230,7 +230,20 @@ struct RuntimeInfo {
 	user: Option<RuntimeUser>,
 	build: RuntimeBuildInfo,
 	ui: RuntimeUiInfo,
+	/// Absent when there is no local config or it cannot be read.
+	#[serde(skip_serializing_if = "Option::is_none")]
+	config: Option<RuntimeConfigInfo>,
 	config_reload: RuntimeConfigReloadInfo,
+}
+
+/// Which sections the effective config sets.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeConfigInfo {
+	llm: bool,
+	mcp: bool,
+	traffic: bool,
+	binds: bool,
 }
 
 /// Standalone config reload outcome, mirroring the `config_synchronized` metric.
@@ -416,6 +429,19 @@ async fn get_runtime(State(app): State<App>, req: axum::extract::Request) -> imp
 			can_logout: session.is_some_and(|session| session.can_logout),
 		}
 	});
+	let config = effective_config(&app).await.ok().map(|config| {
+		let set = |key: &str| config.get(key).is_some_and(|value| !value.is_null());
+		let binds = config
+			.get("binds")
+			.and_then(Value::as_array)
+			.is_some_and(|binds| !binds.is_empty());
+		RuntimeConfigInfo {
+			llm: set("llm"),
+			mcp: set("mcp"),
+			traffic: binds || set("gateways") || set("routes") || set("tcpRoutes"),
+			binds,
+		}
+	});
 	let build = BuildInfo::new();
 	(
 		[("cache-control", "no-store")],
@@ -437,6 +463,7 @@ async fn get_runtime(State(app): State<App>, req: axum::extract::Request) -> imp
 				config_store_mode: app.state.storage.mode,
 				documentation_path: app.documentation.as_ref().map(|bundle| bundle.entrypoint()),
 			},
+			config,
 			config_reload: {
 				let last_error = app.state.config_reload_status.last_error();
 				RuntimeConfigReloadInfo {
@@ -561,6 +588,10 @@ async fn get_config(State(app): State<App>) -> Result<Json<Value>, ErrorResponse
 }
 
 async fn get_effective_config(State(app): State<App>) -> Result<Json<Value>, ErrorResponse> {
+	effective_config(&app).await.map(Json)
+}
+
+async fn effective_config(app: &App) -> Result<Value, ErrorResponse> {
 	let base = app.cfg()?.read_to_string().await?;
 	let config = if app.state.storage.mode == ConfigStoreMode::Hybrid {
 		let resources = app
@@ -572,8 +603,7 @@ async fn get_effective_config(State(app): State<App>) -> Result<Json<Value>, Err
 	} else {
 		base
 	};
-	let value = yaml::from_str(&config).map_err(ErrorResponse::Anyhow)?;
-	Ok(Json(value))
+	yaml::from_str(&config).map_err(ErrorResponse::Anyhow)
 }
 
 async fn write_config(
