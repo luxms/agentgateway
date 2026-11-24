@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
+import { Button, Checkbox, Input, Tag } from 'antd';
 import {
 	Bot,
 	Braces,
@@ -18,6 +18,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { sendChatCompletion, sendMcpJsonRpc } from '@/api/playgroundApi';
 import { claudeSubscriptionWarning } from '@/claudeSubscription';
 import {
+	ButtonLink,
 	Dropdown,
 	Field,
 	FieldGroup,
@@ -28,7 +29,7 @@ import {
 } from '@/components/Primitives';
 import { ProviderIcon } from '@/components/ProviderIcon';
 import { WildcardModelSelector } from '@/components/WildcardModelSelector';
-import { providerLabel } from '@/config';
+import { mcpPolicies, providerLabel } from '@/config';
 import { corsNeedsUpdate, currentOrigin, playgroundCorsPolicy, waitForLlmCors } from '@/cors';
 import { hasKeyValue, keyLabel } from '@/credentialDisplay';
 import { llmPlaygroundEndpoint, mcpPlaygroundEndpoint } from '@/gatewayUrls';
@@ -38,9 +39,17 @@ import {
 	useStoredStringState,
 	useUpsertPolicyResource
 } from '@/hooks';
-import { extractMcpTools, initializeMcpSession, type McpTool, nextRpcId } from '@/mcp';
+import {
+	extractMcpTools,
+	initializeMcpSession,
+	type McpTool,
+	mcpResourceId,
+	mcpServerEndpoints,
+	nextRpcId
+} from '@/mcp';
 import { modelLabel, modelMatchHeaders, modelOptionValue, modelSubtitle } from '@/modelLabel';
 import {
+	catalogProviderName,
 	isWildcardModelName,
 	modelProviderLabel,
 	resolveModelName,
@@ -165,12 +174,14 @@ export function PlaygroundPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
 	const [runSteps, setRunSteps] = useState<RunStep[]>([]);
-	const mcpEndpoint = mcpPlaygroundEndpoint(mcpData.data);
+	// Tools come from the first MCP endpoint: the top-level targets when there are any.
+	const firstMcpEndpoint = mcpServerEndpoints(mcpData.data?.mcp)[0];
+	const mcpEndpoint = mcpPlaygroundEndpoint(mcpData.data, firstMcpEndpoint?.path);
 	const derivedMcpBaseUrl = mcpEndpoint.baseUrl;
 	const [mcpEnabled, setMcpEnabled] = useState(false);
 	const [mcpSessionId, setMcpSessionId] = useState('');
 	const [mcpTools, setMcpTools] = useState<PlaygroundTool[]>([]);
-	const mcpServerCount = mcpData.data?.mcp?.targets?.length ?? 0;
+	const mcpServerCount = firstMcpEndpoint?.targets.length ?? 0;
 
 	useEffect(() => {
 		for (const key of legacySecretStorageKeys) localStorage.removeItem(key);
@@ -188,7 +199,7 @@ export function PlaygroundPage() {
 		providers
 	);
 	const selectedCatalogProvider = selectedModelConfig
-		? modelProviderLabel(selectedModelConfig, providers)
+		? catalogProviderName(selectedModelConfig.provider, providers)
 		: null;
 	const selectedKeyOptionRef = rawVirtualKeys.some(
 		(item, index) => virtualKeyStorageRef(item, index) === selectedKeyRef
@@ -215,9 +226,15 @@ export function PlaygroundPage() {
 		}
 	});
 	const fileCorsOwned = Object.hasOwn(filePolicies, 'cors');
+	// An endpoint's own CORS policy replaces the shared one.
+	const endpointMcpCors = firstMcpEndpoint?.endpoint
+		? (mcpPolicies(mcpData.data?.mcp, firstMcpEndpoint.endpoint)?.cors as CorsPolicy | undefined)
+		: undefined;
+	const mcpCorsEndpoint = endpointMcpCors ? firstMcpEndpoint?.endpoint : undefined;
+	const mcpCors = endpointMcpCors ?? mcpData.data?.mcp?.policies?.cors;
+	const fileMcpCorsPolicies = mcpPolicies(mcpData.rawConfig.data?.mcp, mcpCorsEndpoint);
 	const fileMcpCorsOwned = Boolean(
-		mcpData.rawConfig.data?.mcp?.policies &&
-			Object.hasOwn(mcpData.rawConfig.data.mcp.policies, 'cors')
+		fileMcpCorsPolicies && Object.hasOwn(fileMcpCorsPolicies, 'cors')
 	);
 	const needsCors =
 		applyCors.isPending ||
@@ -226,9 +243,7 @@ export function PlaygroundPage() {
 			? corsNeedsUpdate(llmCors, 'llm')
 			: false);
 	const needsMcpCors =
-		mcpEnabled && mcpData.data && !mcpEndpoint.sameOrigin
-			? corsNeedsUpdate(mcpData.data.mcp?.policies?.cors, 'mcp')
-			: false;
+		mcpEnabled && mcpData.data && !mcpEndpoint.sameOrigin ? corsNeedsUpdate(mcpCors, 'mcp') : false;
 	const sendBlockers = sendReadinessBlockers({
 		loading,
 		displayRequestModel,
@@ -250,8 +265,8 @@ export function PlaygroundPage() {
 	function applyMcpCors() {
 		upsertPolicy.mutate({
 			kind: 'mcp.policy',
-			id: 'cors',
-			value: playgroundCorsPolicy(mcpData.data?.mcp?.policies?.cors, 'mcp')
+			id: mcpResourceId('cors', mcpCorsEndpoint),
+			value: playgroundCorsPolicy(mcpCors, 'mcp')
 		});
 	}
 
@@ -511,13 +526,13 @@ export function PlaygroundPage() {
 					title="Browser access is not allowed"
 					action={
 						hybrid && fileCorsOwned ? (
-							<Link className="button" to="/llm/policies" hash="cors">
+							<ButtonLink to="/llm/policies" hash="cors">
 								Configure CORS
-							</Link>
+							</ButtonLink>
 						) : (
-							<button className="button" type="button" disabled={corsSaving} onClick={applyLlmCors}>
+							<Button disabled={corsSaving} onClick={applyLlmCors}>
 								Apply CORS
-							</button>
+							</Button>
 						)
 					}
 				>
@@ -531,13 +546,13 @@ export function PlaygroundPage() {
 					title="MCP browser access is not allowed"
 					action={
 						hybrid && fileMcpCorsOwned ? (
-							<Link className="button" to="/mcp/policies" hash="cors">
+							<ButtonLink to="/mcp/policies" hash="cors">
 								Configure CORS
-							</Link>
+							</ButtonLink>
 						) : (
-							<button className="button" type="button" disabled={corsSaving} onClick={applyMcpCors}>
+							<Button disabled={corsSaving} onClick={applyMcpCors}>
 								Apply MCP CORS
-							</button>
+							</Button>
 						)
 					}
 				>
@@ -645,9 +660,8 @@ export function PlaygroundPage() {
 							</FieldGroup>
 							{apiKeyMode === 'raw' || rawVirtualKeys.length === 0 ? (
 								<Field label="Raw API key">
-									<input
+									<Input
 										value={apiKey}
-										type="text"
 										className="masked-secret-input"
 										autoComplete="off"
 										autoCorrect="off"
@@ -667,12 +681,11 @@ export function PlaygroundPage() {
 						</div>
 						{mcpServerCount > 0 ? (
 							<div className="playground-tool-cell">
-								<label className="config-option-row">
-									<input
-										type="checkbox"
-										checked={mcpEnabled}
-										onChange={event => setMcpEnabled(event.target.checked)}
-									/>
+								<Checkbox
+									className="option-checkbox"
+									checked={mcpEnabled}
+									onChange={event => setMcpEnabled(event.target.checked)}
+								>
 									<span>
 										<strong>
 											Include MCP tools ({mcpServerCount}{' '}
@@ -680,7 +693,7 @@ export function PlaygroundPage() {
 										</strong>
 										<small>Let the model call tools exposed by the MCP gateway.</small>
 									</span>
-								</label>
+								</Checkbox>
 							</div>
 						) : null}
 					</div>
@@ -695,7 +708,11 @@ export function PlaygroundPage() {
 							<ChevronDown size={16} />
 						</summary>
 						<Field label="System prompt">
-							<textarea rows={4} value={system} onChange={event => setSystem(event.target.value)} />
+							<Input.TextArea
+								rows={4}
+								value={system}
+								onChange={event => setSystem(event.target.value)}
+							/>
 						</Field>
 					</details>
 				</Panel>
@@ -728,7 +745,7 @@ export function PlaygroundPage() {
 						) : null}
 					</div>
 					<Field label="User message">
-						<textarea
+						<Input.TextArea
 							rows={6}
 							value={prompt}
 							onChange={event => setPrompt(event.target.value)}
@@ -742,18 +759,15 @@ export function PlaygroundPage() {
 						/>
 					</Field>
 					<div className="button-row">
-						<button
-							className="button primary"
-							type="button"
+						<Button
+							type="primary"
+							icon={<Send size={16} />}
 							disabled={sendBlockers.length > 0}
 							onClick={send}
 						>
-							<Send size={16} />
 							Send
-						</button>
-						<button
-							className="button"
-							type="button"
+						</Button>
+						<Button
 							disabled={loading || messages.length === 0}
 							onClick={() => {
 								setMessages([]);
@@ -762,7 +776,7 @@ export function PlaygroundPage() {
 							}}
 						>
 							Clear
-						</button>
+						</Button>
 					</div>
 					{sendBlockers.length ? (
 						<div className="playground-send-blockers">
@@ -887,10 +901,9 @@ function MessageMetaChips(props: { meta: MessageMeta }) {
 	return (
 		<div className="message-meta-chips">
 			{chips.map(chip => (
-				<span className="message-meta-chip" key={chip.key}>
-					{chip.icon}
+				<Tag key={chip.key} icon={chip.icon}>
 					{chip.label}
-				</span>
+				</Tag>
 			))}
 		</div>
 	);
@@ -923,7 +936,7 @@ function ToolCallSummary(props: { message: ChatMessage }) {
 			{props.message.content.trim() ? <p>{props.message.content}</p> : null}
 			{props.message.tool_calls?.map(call => (
 				<div className="tool-call-row" key={call.id}>
-					<span className="tool-pill">Tool call</span>
+					<Tag>Tool call</Tag>
 					<strong>{call.function?.name || 'unknown'}</strong>
 					<small>{summarizeValue(parseToolArguments(call.function?.arguments))}</small>
 				</div>
@@ -936,7 +949,7 @@ function ToolResultSummary(props: { message: ChatMessage }) {
 	return (
 		<div className="tool-call-summary">
 			<div className="tool-call-row">
-				<span className="tool-pill">Tool result</span>
+				<Tag>Tool result</Tag>
 				<strong>{props.message.name || 'unknown'}</strong>
 				<small>{summarizeToolResult(props.message.content)}</small>
 			</div>

@@ -1,13 +1,14 @@
-import { Link } from '@tanstack/react-router';
+import { Button, Checkbox, Input, InputNumber, Tag } from 'antd';
 import { Braces, Cable, Play, RotateCcw } from 'lucide-react';
-import type { KeyboardEvent } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { type KeyboardEvent, useEffect, useMemo, useState } from 'react';
 
 import { sendMcpJsonRpc } from '@/api/playgroundApi';
 import { EnumSelector } from '@/components/EnumSelector';
 import { MiniMonacoEditor } from '@/components/MiniMonacoEditor';
 import {
+	ButtonLink,
 	Dropdown,
+	EmptyState,
 	Field,
 	FieldGroup,
 	JsonBlock,
@@ -15,10 +16,20 @@ import {
 	Panel,
 	StatusBanner
 } from '@/components/Primitives';
+import { mcpPolicies } from '@/config';
 import { corsNeedsUpdate, currentOrigin, playgroundCorsPolicy } from '@/cors';
 import { mcpPlaygroundEndpoint } from '@/gatewayUrls';
 import { useMcpConfigData, useStoredStringState, useUpsertPolicyResource } from '@/hooks';
-import { extractMcpTools, type McpTool, nextRpcId, sendInitializedNotification } from '@/mcp';
+import {
+	extractMcpTools,
+	type McpTool,
+	mcpEndpointLabel,
+	mcpResourceId,
+	mcpServerEndpoints,
+	nextRpcId,
+	sendInitializedNotification
+} from '@/mcp';
+import type { CorsPolicy } from '@/types';
 
 type JsonSchema = {
 	type?: string | string[];
@@ -35,17 +46,27 @@ type McpResponse = {
 	sessionId: string | null;
 	body: unknown;
 };
-
 const storageKeys = {
-	tool: 'mcpPlaygroundTool'
+	tool: 'mcpPlaygroundTool',
+	endpoint: 'mcpPlaygroundEndpointPath'
 };
 
 export function McpPlaygroundPage() {
 	const mcpData = useMcpConfigData();
 	const effectiveConfig = mcpData.data;
 	const upsertPolicy = useUpsertPolicyResource();
-	const targets = useMemo(() => effectiveConfig?.mcp?.targets ?? [], [effectiveConfig]);
-	const mcpEndpoint = mcpPlaygroundEndpoint(effectiveConfig);
+	const endpoints = useMemo(() => mcpServerEndpoints(effectiveConfig?.mcp), [effectiveConfig]);
+	const [endpointPath, setEndpointPath] = useStoredStringState(storageKeys.endpoint, '');
+	const selectedEndpoint =
+		endpoints.find(endpoint => (endpoint.endpoint ?? '') === endpointPath) ?? endpoints[0];
+	const targets = selectedEndpoint?.targets ?? [];
+	const mcpEndpoint = mcpPlaygroundEndpoint(effectiveConfig, selectedEndpoint?.path);
+	// An endpoint's own CORS policy replaces the shared one.
+	const endpointCors = selectedEndpoint?.endpoint
+		? (mcpPolicies(effectiveConfig?.mcp, selectedEndpoint.endpoint)?.cors as CorsPolicy | undefined)
+		: undefined;
+	const corsEndpoint = endpointCors ? selectedEndpoint?.endpoint : undefined;
+	const cors = endpointCors ?? effectiveConfig?.mcp?.policies?.cors;
 	const derivedBaseUrl = mcpEndpoint.baseUrl;
 	const baseUrl = derivedBaseUrl;
 	const [initialized, setInitialized] = useState(false);
@@ -61,13 +82,9 @@ export function McpPlaygroundPage() {
 
 	const selectedTool = tools.find(tool => tool.name === toolName);
 	const needsCors =
-		effectiveConfig && !mcpEndpoint.sameOrigin
-			? corsNeedsUpdate(effectiveConfig.mcp?.policies?.cors, 'mcp')
-			: false;
-	const fileCorsOwned = Boolean(
-		mcpData.rawConfig.data?.mcp?.policies &&
-			Object.hasOwn(mcpData.rawConfig.data.mcp.policies, 'cors')
-	);
+		effectiveConfig && !mcpEndpoint.sameOrigin ? corsNeedsUpdate(cors, 'mcp') : false;
+	const fileCorsPolicies = mcpPolicies(mcpData.rawConfig.data?.mcp, corsEndpoint);
+	const fileCorsOwned = Boolean(fileCorsPolicies && Object.hasOwn(fileCorsPolicies, 'cors'));
 
 	useEffect(() => {
 		localStorage.removeItem('mcpPlaygroundArgs');
@@ -175,24 +192,22 @@ export function McpPlaygroundPage() {
 					title="Browser access is not allowed"
 					action={
 						mcpData.hybrid && fileCorsOwned ? (
-							<Link className="button" to="/mcp/policies" hash="cors">
+							<ButtonLink to="/mcp/policies" hash="cors">
 								Configure CORS
-							</Link>
+							</ButtonLink>
 						) : (
-							<button
-								className="button"
-								type="button"
+							<Button
 								disabled={upsertPolicy.isPending}
 								onClick={() => {
 									upsertPolicy.mutate({
 										kind: 'mcp.policy',
-										id: 'cors',
-										value: playgroundCorsPolicy(effectiveConfig?.mcp?.policies?.cors, 'mcp')
+										id: mcpResourceId('cors', corsEndpoint),
+										value: playgroundCorsPolicy(cors, 'mcp')
 									});
 								}}
 							>
 								Apply CORS
-							</button>
+							</Button>
 						)
 					}
 				>
@@ -220,9 +235,8 @@ export function McpPlaygroundPage() {
 							</strong>
 						</div>
 						{initialized ? (
-							<button
-								className="button"
-								type="button"
+							<Button
+								icon={<RotateCcw size={16} />}
 								onClick={() => {
 									setInitialized(false);
 									setSessionId('');
@@ -232,28 +246,48 @@ export function McpPlaygroundPage() {
 									setError(null);
 								}}
 							>
-								<RotateCcw size={16} />
 								Reset
-							</button>
+							</Button>
 						) : (
-							<button
-								className="button primary"
-								type="button"
+							<Button
+								type="primary"
+								icon={<Cable size={16} />}
+								loading={loading === 'initialize'}
 								disabled={loading !== null || !baseUrl.trim()}
 								onClick={initialize}
 							>
-								<Cable size={16} />
 								Initialize
-							</button>
+							</Button>
 						)}
 					</div>
+
+					{endpoints.length > 1 ? (
+						<FieldGroup label="Endpoint">
+							<Dropdown
+								ariaLabel="Endpoint"
+								value={selectedEndpoint?.endpoint ?? ''}
+								disabled={loading !== null}
+								options={endpoints.map(endpoint => ({
+									value: endpoint.endpoint ?? '',
+									label: mcpEndpointLabel(endpoint)
+								}))}
+								onChange={value => {
+									setEndpointPath(value);
+									setInitialized(false);
+									setSessionId('');
+									setTools([]);
+									setResult(null);
+									setError(null);
+								}}
+							/>
+						</FieldGroup>
+					) : null}
 
 					<details className="schema-details mcp-auth-details">
 						<summary>Authorization header</summary>
 						<Field label="Bearer token">
-							<input
+							<Input
 								value={bearerToken}
-								type="text"
 								className="masked-secret-input"
 								autoComplete="off"
 								autoCorrect="off"
@@ -317,15 +351,15 @@ export function McpPlaygroundPage() {
 						</FieldGroup>
 					)}
 					<div className="button-row mcp-call-actions">
-						<button
-							className="button primary"
-							type="button"
+						<Button
+							type="primary"
+							icon={<Play size={16} />}
+							loading={loading === 'call'}
 							disabled={loading !== null || !initialized || !baseUrl.trim() || !toolName.trim()}
 							onClick={callTool}
 						>
-							<Play size={16} />
 							Call tool
-						</button>
+						</Button>
 					</div>
 				</Panel>
 				<Panel className="playground-response-panel">
@@ -335,10 +369,10 @@ export function McpPlaygroundPage() {
 					{result ? (
 						<McpResultView response={result} />
 					) : (
-						<div className="empty-state">
-							<h3>No response yet</h3>
-							<p>Initialize or send a tool request to inspect MCP behavior.</p>
-						</div>
+						<EmptyState
+							title="No response yet"
+							description="Initialize or send a tool request to inspect MCP behavior."
+						/>
 					)}
 				</Panel>
 			</section>
@@ -393,36 +427,33 @@ function ToolArgumentsForm(props: {
 				}
 				if (type === 'boolean') {
 					return (
-						<label className="config-option-row" key={name}>
-							<input
-								type="checkbox"
-								checked={Boolean(value)}
-								onChange={event =>
-									props.onChange({
-										...props.values,
-										[name]: event.target.checked
-									})
-								}
-								onKeyDown={event => submitOnModEnter(event, props.onSubmit)}
-							/>
+						<Checkbox
+							className="option-checkbox"
+							key={name}
+							checked={Boolean(value)}
+							onChange={event =>
+								props.onChange({
+									...props.values,
+									[name]: event.target.checked
+								})
+							}
+							onKeyDown={event => submitOnModEnter(event, props.onSubmit)}
+						>
 							<span>
 								<strong>{label}</strong>
 								{property.description ? <small>{property.description}</small> : null}
 							</span>
-						</label>
+						</Checkbox>
 					);
 				}
 				if (type === 'number' || type === 'integer') {
 					return (
 						<Field label={label} hint={property.description} key={name}>
-							<input
-								type="number"
-								value={typeof value === 'number' ? value : ''}
-								onChange={event =>
-									props.onChange({
-										...props.values,
-										[name]: event.target.value === '' ? '' : Number(event.target.value)
-									})
+							<InputNumber
+								style={{ width: '100%' }}
+								value={typeof value === 'number' ? value : null}
+								onChange={next =>
+									props.onChange({ ...props.values, [name]: typeof next === 'number' ? next : '' })
 								}
 								onKeyDown={event => submitOnModEnter(event, props.onSubmit)}
 							/>
@@ -449,7 +480,7 @@ function ToolArgumentsForm(props: {
 				}
 				return (
 					<Field label={label} hint={property.description} key={name}>
-						<input
+						<Input
 							value={typeof value === 'string' ? value : ''}
 							onChange={event => props.onChange({ ...props.values, [name]: event.target.value })}
 							onKeyDown={event => submitOnModEnter(event, props.onSubmit)}
@@ -461,10 +492,7 @@ function ToolArgumentsForm(props: {
 	);
 }
 
-function submitOnModEnter(
-	event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
-	onSubmit: () => void
-) {
+function submitOnModEnter(event: KeyboardEvent, onSubmit: () => void) {
 	if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
 		event.preventDefault();
 		onSubmit();
@@ -558,9 +586,9 @@ function McpResultView(props: { response: McpResponse }) {
 	return (
 		<div className="mcp-result-view">
 			<div className="mcp-result-status">
-				<span className={error || toolError ? 'badge bad' : 'badge ok'}>
+				<Tag color={error || toolError ? 'error' : 'success'}>
 					{error ? 'error' : toolError ? 'tool error' : `HTTP ${props.response.status}`}
-				</span>
+				</Tag>
 				{props.response.sessionId ? <span className="mono">{props.response.sessionId}</span> : null}
 			</div>
 

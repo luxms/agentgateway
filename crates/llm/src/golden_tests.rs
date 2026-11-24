@@ -244,7 +244,8 @@ mod requests {
 		("codex-assistant-history", &[BEDROCK, GEMINI]),
 		("parallel-tool-call", &[BEDROCK, GEMINI]),
 		("structured-output", &[BEDROCK]),
-		("input-media", &[BEDROCK]),
+		("input-media", &[BEDROCK, COMPLETIONS]),
+		("input-images", &[COMPLETIONS]),
 		("cache_control", &[BEDROCK, GEMINI]),
 		("cache_control_tool_outputs", &[BEDROCK]),
 	];
@@ -330,7 +331,7 @@ mod requests {
 						|i: &mut types::completions::Request| {
 							let mut resolved = i.clone();
 							resolved.model = Some("gemini-2.5-pro".into());
-							conversion::vertex_gemini::from_completions::translate(&resolved, true)
+							conversion::vertex_gemini::from_completions::translate(&resolved)
 						},
 					),
 					other => panic!("unsupported provider in COMPLETION_REQUESTS: {other}"),
@@ -462,7 +463,7 @@ mod requests {
 						conversion::bedrock::from_responses::translate(i, &bedrock, None, None, None)
 							.map(|r| r.body)
 					}),
-					GEMINI => test_request(GEMINI, &path, |i| {
+					provider @ (COMPLETIONS | GEMINI) => test_request(provider, &path, |i| {
 						conversion::openai_compat::from_responses::translate(i)
 					}),
 					other => panic!("unsupported provider in RESPONSES_REQUESTS: {other}"),
@@ -576,7 +577,21 @@ mod requests {
 			test_request(SYSTEMONE, &path, |i: &mut types::decisions::Request| {
 				conversion::systemone::from_decisions::translate(i).map(|(body, _)| body)
 			});
+			test_request(GEMINI, &path, |i: &mut types::decisions::Request| {
+				conversion::gemini::from_decisions::translate(i).map(|(body, _)| body)
+			});
 		}
+	}
+
+	#[test]
+	fn gemini_decisions_typed_values() {
+		test_request(
+			GEMINI,
+			"requests/decisions/typed_values.json",
+			|i: &mut types::decisions::Request| {
+				conversion::gemini::from_decisions::translate(i).map(|(body, _)| body)
+			},
+		);
 	}
 
 	#[test]
@@ -588,6 +603,9 @@ mod requests {
 			});
 			test_request(OPENAI, &path, |i: &mut types::systemone::Request| {
 				conversion::systemone::from_systemone::translate(i).map(|(body, _)| body)
+			});
+			test_request(GEMINI, &path, |i: &mut types::systemone::Request| {
+				conversion::gemini::from_systemone::translate(i).map(|(body, _)| body)
 			});
 		}
 	}
@@ -1506,6 +1524,12 @@ mod responses {
 		let req: types::decisions::Request =
 			serde_json::from_slice(&fs::read(fixture_path("requests/decisions/full.json")).unwrap())
 				.unwrap();
+		let (_, state) = conversion::gemini::from_decisions::translate(&req).unwrap();
+		test_response(OPENAI, "response/gemini/decisions.json", |i| {
+			parse(&conversion::gemini::from_decisions::translate_response(
+				&i, &state,
+			)?)
+		});
 		let (_, state) = conversion::systemone::from_decisions::translate(&req).unwrap();
 		test_response(SYSTEMONE, "response/systemone/decisions.json", |i| {
 			parse(&conversion::systemone::from_decisions::translate_response(
@@ -1519,6 +1543,13 @@ mod responses {
 		let req: types::systemone::Request =
 			serde_json::from_slice(&fs::read(fixture_path("requests/systemone/full.json")).unwrap())
 				.unwrap();
+		let (_, state) = conversion::gemini::from_systemone::translate(&req).unwrap();
+		test_response(SYSTEMONE, "response/gemini/systemone.json", |i| {
+			let body = conversion::gemini::from_systemone::translate_response(&i, &state)?;
+			serde_json::from_slice::<types::systemone::Response>(&body)
+				.map(|r| Box::new(r) as Box<dyn ResponseType>)
+				.map_err(AIError::ResponseParsing)
+		});
 		let (_, state) = conversion::systemone::from_systemone::translate(&req).unwrap();
 		for path in [
 			"response/openai/systemone.json",
@@ -1531,6 +1562,21 @@ mod responses {
 					.map_err(AIError::ResponseParsing)
 			});
 		}
+	}
+
+	#[test]
+	fn gemini_decisions_typed_values() {
+		let req = serde_json::from_slice(
+			&fs::read(fixture_path("requests/decisions/typed_values.json")).unwrap(),
+		)
+		.unwrap();
+		let (_, state) = conversion::gemini::from_decisions::translate(&req).unwrap();
+		test_response(OPENAI, "response/gemini/typed_values.json", |i| {
+			let body = conversion::gemini::from_decisions::translate_response(&i, &state)?;
+			serde_json::from_slice::<types::decisions::Response>(&body)
+				.map(|r| Box::new(r) as Box<dyn ResponseType>)
+				.map_err(AIError::ResponseParsing)
+		});
 	}
 
 	#[test]

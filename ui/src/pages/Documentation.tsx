@@ -1,3 +1,5 @@
+import { Button } from 'antd';
+
 import { apiBase } from '@/api/base';
 import { PageHeader, StatusBanner } from '@/components/Primitives';
 import { useRuntimeInfo } from '@/hooks';
@@ -15,14 +17,13 @@ export function DocumentationPage() {
 				<PageHeader
 					title="Documentation"
 					actions={
-						<a
-							className="button"
+						<Button
 							href="https://agentgateway.dev/docs/standalone/latest/"
 							target="_blank"
 							rel="noreferrer"
 						>
 							Open public documentation
-						</a>
+						</Button>
 					}
 				/>
 			</div>

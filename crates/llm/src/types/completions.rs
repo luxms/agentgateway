@@ -293,6 +293,21 @@ impl Usage {
 	}
 }
 
+impl Response {
+	pub fn response_id(&self) -> Option<Strng> {
+		self.rest.get("id").and_then(|v| v.as_str()).map(strng::new)
+	}
+
+	pub fn finish_reasons(&self) -> Option<Vec<Strng>> {
+		super::finish_reasons(
+			self
+				.choices
+				.iter()
+				.map(|c| c.rest.get("finish_reason").and_then(|v| v.as_str())),
+		)
+	}
+}
+
 impl ResponseType for Response {
 	fn to_llm_response(&self, log_content: crate::LogContentFields) -> LLMResponse {
 		let output_messages = if log_content.tool_calls {
@@ -348,6 +363,9 @@ impl ResponseType for Response {
 			}),
 			service_tier: self.service_tier.as_deref().map(Into::into),
 			provider_model: Some(strng::new(&self.model)),
+			served_model: None,
+			response_id: self.response_id(),
+			finish_reasons: self.finish_reasons(),
 			completion: if log_content.completion {
 				Some(
 					self
@@ -823,6 +841,7 @@ pub mod typed {
 
 	use std::collections::HashMap;
 
+	use agent_core::strng::Strng;
 	use async_openai::types::chat::{ChatChoiceLogprobs, ChatCompletionResponseMessageAudio};
 	#[allow(deprecated)]
 	#[allow(deprecated_in_future)]
@@ -837,6 +856,7 @@ pub mod typed {
 		ChatCompletionRequestDeveloperMessageContent as RequestDeveloperMessageContent,
 		ChatCompletionRequestDeveloperMessageContentPart as RequestDeveloperMessageContentPart,
 		ChatCompletionRequestFunctionMessage as RequestFunctionMessage,
+		ChatCompletionRequestMessageContentPartFile as RequestMessageContentPartFile,
 		ChatCompletionRequestMessageContentPartImage as RequestMessageContentPartImage,
 		ChatCompletionRequestMessageContentPartText as RequestMessageContentPartText,
 		ChatCompletionRequestSystemMessage as RequestSystemMessage,
@@ -850,11 +870,11 @@ pub mod typed {
 		ChatCompletionRequestUserMessageContentPart as RequestUserMessageContentPart,
 		ChatCompletionStreamOptions as StreamOptions, ChatCompletionTool as FunctionTool,
 		ChatCompletionToolChoiceOption as ToolChoiceOption, ChatCompletionToolChoiceOption,
-		ChatCompletionTools as Tool, FinishReason, FunctionCall, FunctionCallStream, FunctionName,
-		FunctionObject, FunctionType, ImageUrl, PredictionContent, PromptCacheBreakpointParam,
-		PromptCacheBreakpointParamMode, ReasoningEffort, ResponseFormat, ResponseFormatJsonSchema,
-		ResponseModalities as ChatCompletionModalities, Role, StopConfiguration as Stop,
-		ToolChoiceOptions, WebSearchOptions,
+		ChatCompletionTools as Tool, FileObject, FinishReason, FunctionCall, FunctionCallStream,
+		FunctionName, FunctionObject, FunctionType, ImageUrl, PredictionContent,
+		PromptCacheBreakpointParam, PromptCacheBreakpointParamMode, ReasoningEffort, ResponseFormat,
+		ResponseFormatJsonSchema, ResponseModalities as ChatCompletionModalities, Role,
+		StopConfiguration as Stop, ToolChoiceOptions, WebSearchOptions,
 	};
 	use serde::{Deserialize, Serialize};
 
@@ -977,6 +997,16 @@ pub mod typed {
 		#[serde(default, skip_serializing_if = "String::is_empty")]
 		pub object: String,
 		pub usage: Option<Usage>,
+	}
+
+	impl Response {
+		pub fn finish_reasons(&self) -> Option<Vec<Strng>> {
+			crate::types::finish_reasons(self.choices.iter().map(|c| {
+				c.finish_reason
+					.as_ref()
+					.and_then(crate::types::serialize_str)
+			}))
+		}
 	}
 
 	#[derive(Default, Debug, Deserialize, Clone, Serialize)]
@@ -1477,31 +1507,6 @@ pub mod typed {
 		pub event_id: Option<String>,
 	}
 
-	/// Google's OpenAI-compatible shim (Gemini API and Vertex AI) return errors
-	/// following the standard Google Cloud error model, but consistently wrap
-	/// them in a JSON array when returned from the Vertex AI shim.
-	///
-	/// For the official Google Cloud error model, see:
-	/// https://cloud.google.com/apis/design/errors#http_mapping
-	///
-	/// For the observed non-standard array-wrapping behavior in the OpenAI shim, see:
-	/// https://github.com/openai/openai-node/issues/1734
-	#[derive(Debug, Deserialize, Serialize)]
-	pub struct GoogleErrorResponse {
-		pub error: GoogleError,
-	}
-
-	#[derive(Debug, Deserialize, Serialize)]
-	pub struct GoogleError {
-		/// The numeric error code (e.g. 400).
-		pub code: i32,
-		/// The human-readable error message.
-		pub message: String,
-		/// The programmatic error status (e.g. "INVALID_ARGUMENT", "RESOURCE_EXHAUSTED").
-		#[serde(default)]
-		pub status: Option<String>,
-	}
-
 	#[allow(dead_code)]
 	pub fn message_text(msg: &RequestMessage) -> Option<&str> {
 		// All of these types support Vec<Text>... show we support those?
@@ -1545,6 +1550,59 @@ pub mod typed {
 				Some(Stop::StringArray(s)) => s.clone(),
 				_ => vec![],
 			}
+		}
+
+		pub fn replace_original_image_detail_with_high(&mut self) {
+			use async_openai::types::chat::ImageDetail;
+
+			for message in &mut self.messages {
+				let RequestMessage::User(RequestUserMessage {
+					content: RequestUserMessageContent::Array(parts),
+					..
+				}) = message
+				else {
+					continue;
+				};
+				for part in parts {
+					if let RequestUserMessageContentPart::ImageUrl(image) = part
+						&& image.image_url.detail == Some(ImageDetail::Original)
+					{
+						image.image_url.detail = Some(ImageDetail::High);
+					}
+				}
+			}
+		}
+
+		pub fn send_files_as_image_urls(&mut self) -> Result<(), crate::AIError> {
+			for message in &mut self.messages {
+				let RequestMessage::User(RequestUserMessage {
+					content: RequestUserMessageContent::Array(parts),
+					..
+				}) = message
+				else {
+					continue;
+				};
+				for part in parts {
+					let RequestUserMessageContentPart::File(file) = part else {
+						continue;
+					};
+					let url = file
+						.file
+						.file_data
+						.take()
+						.filter(|data| data.starts_with("data:"))
+						.ok_or_else(|| {
+							crate::AIError::UnsupportedConversion(agent_core::strng::literal!(
+								"this provider reads files only from a data URL in file_data"
+							))
+						})?;
+					*part = RequestUserMessageContentPart::ImageUrl(RequestMessageContentPartImage {
+						image_url: ImageUrl { url, detail: None },
+						prompt_cache_breakpoint: file.prompt_cache_breakpoint.take(),
+					});
+				}
+			}
+			Ok(())
 		}
 
 		/// Remove `extra_content` (Gemini thought signatures) from replayed tool calls,

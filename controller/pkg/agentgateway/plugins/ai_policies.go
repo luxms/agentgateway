@@ -31,15 +31,19 @@ func processRequestGuard(ctx PolicyCtx, namespace string, reqs []agentgateway.Pr
 			}
 		} else if req.OpenAIModeration != nil {
 			pgReq.Kind = &api.BackendPolicySpec_Ai_RequestGuard_OpenaiModeration{
-				OpenaiModeration: processModeration(ctx, namespace, req.OpenAIModeration),
+				OpenaiModeration: processModeration(ctx, namespace, req.OpenAIModeration, req.Policies),
 			}
 		} else if req.BedrockGuardrails != nil {
 			pgReq.Kind = &api.BackendPolicySpec_Ai_RequestGuard_BedrockGuardrails{
-				BedrockGuardrails: processBedrockGuardrails(ctx, namespace, req.BedrockGuardrails),
+				BedrockGuardrails: processBedrockGuardrails(ctx, namespace, req.BedrockGuardrails, req.Policies),
 			}
 		} else if req.GoogleModelArmor != nil {
 			pgReq.Kind = &api.BackendPolicySpec_Ai_RequestGuard_GoogleModelArmor{
-				GoogleModelArmor: processGoogleModelArmor(ctx, namespace, req.GoogleModelArmor),
+				GoogleModelArmor: processGoogleModelArmor(ctx, namespace, req.GoogleModelArmor, req.Policies),
+			}
+		} else if req.AzureContentSafety != nil {
+			pgReq.Kind = &api.BackendPolicySpec_Ai_RequestGuard_AzureContentSafety{
+				AzureContentSafety: processAzureContentSafety(ctx, namespace, req.AzureContentSafety, req.Policies),
 			}
 		}
 
@@ -93,11 +97,15 @@ func processResponseGuard(ctx PolicyCtx, namespace string, resps []agentgateway.
 			}
 		} else if resp.BedrockGuardrails != nil {
 			pgResp.Kind = &api.BackendPolicySpec_Ai_ResponseGuard_BedrockGuardrails{
-				BedrockGuardrails: processBedrockGuardrails(ctx, namespace, resp.BedrockGuardrails),
+				BedrockGuardrails: processBedrockGuardrails(ctx, namespace, resp.BedrockGuardrails, resp.Policies),
 			}
 		} else if resp.GoogleModelArmor != nil {
 			pgResp.Kind = &api.BackendPolicySpec_Ai_ResponseGuard_GoogleModelArmor{
-				GoogleModelArmor: processGoogleModelArmor(ctx, namespace, resp.GoogleModelArmor),
+				GoogleModelArmor: processGoogleModelArmor(ctx, namespace, resp.GoogleModelArmor, resp.Policies),
+			}
+		} else if resp.AzureContentSafety != nil {
+			pgResp.Kind = &api.BackendPolicySpec_Ai_ResponseGuard_AzureContentSafety{
+				AzureContentSafety: processAzureContentSafety(ctx, namespace, resp.AzureContentSafety, resp.Policies),
 			}
 		}
 
@@ -276,7 +284,7 @@ func processRegex(regex *agentgateway.Regex) *api.BackendPolicySpec_Ai_RegexRule
 	return rules
 }
 
-func processModeration(ctx PolicyCtx, namespace string, moderation *agentgateway.OpenAIModeration) *api.BackendPolicySpec_Ai_Moderation {
+func processModeration(ctx PolicyCtx, namespace string, moderation *agentgateway.OpenAIModeration, policies *agentgateway.PromptGuardPolicy) *api.BackendPolicySpec_Ai_Moderation {
 	if moderation == nil {
 		return nil
 	}
@@ -286,19 +294,17 @@ func processModeration(ctx PolicyCtx, namespace string, moderation *agentgateway
 	pgModeration.Action = mapRejectAuditAction(moderation.Action)
 	pgModeration.FailureMode = guardrailFailureMode(moderation.FailureMode)
 
-	if moderation.Policies != nil {
-		pols, err := translateAuxiliaryBackendPolicies(ctx, namespace, moderation.Policies)
-		if err != nil {
-			logger.Warn("failed to translate policy", "err", err)
-		} else {
-			pgModeration.InlinePolicies = pols
-		}
+	pols, err := translateAuxiliaryBackendPolicies(ctx, namespace, guardPolicies(policies, moderation.Policies))
+	if err != nil {
+		logger.Warn("failed to translate policy", "err", err)
+	} else {
+		pgModeration.InlinePolicies = pols
 	}
 
 	return pgModeration
 }
 
-func processBedrockGuardrails(ctx PolicyCtx, namespace string, guardrails *agentgateway.BedrockGuardrails) *api.BackendPolicySpec_Ai_BedrockGuardrails {
+func processBedrockGuardrails(ctx PolicyCtx, namespace string, guardrails *agentgateway.BedrockGuardrails, policies *agentgateway.PromptGuardPolicy) *api.BackendPolicySpec_Ai_BedrockGuardrails {
 	if guardrails == nil {
 		return nil
 	}
@@ -311,19 +317,17 @@ func processBedrockGuardrails(ctx PolicyCtx, namespace string, guardrails *agent
 		FailureMode: guardrailFailureMode(guardrails.FailureMode),
 	}
 
-	if guardrails.Policies != nil {
-		pols, err := translateAuxiliaryBackendPolicies(ctx, namespace, guardrails.Policies)
-		if err != nil {
-			logger.Warn("failed to translate policy", "err", err)
-		} else {
-			pgGuardrails.InlinePolicies = pols
-		}
+	pols, err := translateAuxiliaryBackendPolicies(ctx, namespace, guardPolicies(policies, guardrails.Policies))
+	if err != nil {
+		logger.Warn("failed to translate policy", "err", err)
+	} else {
+		pgGuardrails.InlinePolicies = pols
 	}
 
 	return pgGuardrails
 }
 
-func processGoogleModelArmor(ctx PolicyCtx, namespace string, armor *agentgateway.GoogleModelArmor) *api.BackendPolicySpec_Ai_GoogleModelArmor {
+func processGoogleModelArmor(ctx PolicyCtx, namespace string, armor *agentgateway.GoogleModelArmor, policies *agentgateway.PromptGuardPolicy) *api.BackendPolicySpec_Ai_GoogleModelArmor {
 	if armor == nil {
 		return nil
 	}
@@ -342,20 +346,63 @@ func processGoogleModelArmor(ctx PolicyCtx, namespace string, armor *agentgatewa
 		pgArmor.Location = new("us-central1")
 	}
 
-	if armor.Policies != nil {
-		pols, err := translateAuxiliaryBackendPolicies(ctx, namespace, armor.Policies)
-		if err != nil {
-			logger.Warn("failed to translate policy", "err", err)
-		} else {
-			pgArmor.InlinePolicies = pols
-		}
+	pols, err := translateAuxiliaryBackendPolicies(ctx, namespace, guardPolicies(policies, armor.Policies))
+	if err != nil {
+		logger.Warn("failed to translate policy", "err", err)
+	} else {
+		pgArmor.InlinePolicies = pols
 	}
 
 	return pgArmor
 }
 
+func processAzureContentSafety(ctx PolicyCtx, namespace string, acs *agentgateway.AzureContentSafety, policies *agentgateway.PromptGuardPolicy) *api.BackendPolicySpec_Ai_AzureContentSafety {
+	if acs == nil {
+		return nil
+	}
+
+	pgACS := &api.BackendPolicySpec_Ai_AzureContentSafety{
+		Endpoint:    acs.Endpoint,
+		Action:      mapRejectAuditAction(acs.Action),
+		FailureMode: guardrailFailureMode(acs.FailureMode),
+	}
+
+	if at := acs.AnalyzeText; at != nil {
+		pgACS.AnalyzeText = &api.BackendPolicySpec_Ai_AzureContentSafety_AnalyzeText{
+			SeverityThreshold:  at.SeverityThreshold,
+			ApiVersion:         at.APIVersion,
+			BlocklistNames:     at.BlocklistNames,
+			HaltOnBlocklistHit: at.HaltOnBlocklistHit,
+		}
+	}
+	if dj := acs.DetectJailbreak; dj != nil {
+		pgACS.DetectJailbreak = &api.BackendPolicySpec_Ai_AzureContentSafety_DetectJailbreak{
+			ApiVersion: dj.APIVersion,
+		}
+	}
+
+	if policies != nil {
+		pols, err := translateAuxiliaryBackendPolicies(ctx, namespace, policies)
+		if err != nil {
+			logger.Warn("failed to translate policy", "err", err)
+		} else {
+			pgACS.InlinePolicies = pols
+		}
+	}
+
+	return pgACS
+}
+
 type backendSimplePolicy interface {
 	BackendSimple() *agentgateway.BackendSimple
+}
+
+// guardPolicies prefers guard-level policies over the deprecated provider-level policies.
+func guardPolicies(guardLevel *agentgateway.PromptGuardPolicy, deprecated backendSimplePolicy) backendSimplePolicy {
+	if guardLevel != nil {
+		return guardLevel
+	}
+	return deprecated
 }
 
 func translateAuxiliaryBackendPolicies(ctx PolicyCtx, namespace string, policies backendSimplePolicy) ([]*api.BackendPolicySpec, error) {
